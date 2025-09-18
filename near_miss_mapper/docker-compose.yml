@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: near_miss_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/
+      - DB_NAME=near_miss_db
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    networks:
+      - near-miss-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: near_miss_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - near-miss-network
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+
+  mongo:
+    image: mongo:6.0
+    container_name: near_miss_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - near-miss-network
+
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: mongo_express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: example
+    depends_on:
+      - mongo
+    networks:
+      - near-miss-network
+
+networks:
+  near-miss-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
