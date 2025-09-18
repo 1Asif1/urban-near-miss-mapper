@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaf
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import axios from 'axios';
-import { createEvent } from './api';
+import { createEvent, deleteEvent } from './api';
 import ReportButton from './components/ReportButton';
 
 // Fix for default marker icons in React Leaflet
@@ -175,7 +175,7 @@ function MapView() {
         {/* Render near-miss event markers */}
         {events.map((event, index) => (
           <Marker 
-            key={index} 
+            key={event.id || index} 
             position={[event.location.coordinates[1], event.location.coordinates[0]]}
             icon={defaultIcon}
           >
@@ -185,6 +185,22 @@ function MapView() {
                 <p>{event.description}</p>
                 <p>Severity: {event.severity}</p>
                 <p>Reported on: {new Date(event.timestamp).toLocaleDateString()}</p>
+                {event.id && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await deleteEvent(event.id);
+                        setEvents((prev) => prev.filter((e) => e.id !== event.id));
+                      } catch (err) {
+                        console.error('Delete failed', err);
+                        setError('Failed to remove event.');
+                      }
+                    }}
+                    style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, border: '1px solid #dc2626', background: '#ef4444', color: 'white' }}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             </Popup>
           </Marker>

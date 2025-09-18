@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime, timedelta
 import motor.motor_asyncio
 from bson import ObjectId
@@ -124,6 +124,113 @@ class NearMissEvent(BaseModel):
 async def root():
     return {"message": "Welcome to Urban Near Miss Mapper API"}
 
+# ----- Spatial Statistics: Getis-Ord Gi* -----
+class GiStarRequest(BaseModel):
+    neighborhood_method: Literal['queen', 'rook', 'knn', 'distance_band'] = 'queen'
+    k: int = 8
+    distance_band_m: Optional[float] = None
+    permutations: int = 999
+    fdr: bool = True
+    use_centroids: bool = False
+    cell_size_m: float = 250.0
+    buffer_m: float = 0.0
+
+@app.post("/api/spatial/gi_star")
+async def compute_gi_star(req: GiStarRequest):
+    # 1) Load events from Mongo
+    events = []
+    async for doc in db.events.find():
+        try:
+            coords = doc.get('location', {}).get('coordinates', None)
+            if coords and isinstance(coords, list) and len(coords) == 2:
+                events.append({
+                    'lon': float(coords[0]),
+                    'lat': float(coords[1])
+                })
+        except Exception:
+            continue
+
+    if not events:
+        raise HTTPException(status_code=400, detail="No events found to compute Gi*.")
+
+    events_df = pd.DataFrame(events)
+
+    # 2) Aggregate events to a grid (counts per cell)
+    grid_gdf = events_to_grid(events_df, lon_field='lon', lat_field='lat', cell_size_m=req.cell_size_m, buffer_m=req.buffer_m)
+
+    # 3) Compute Gi* on counts
+    gi_gdf = gi_star_compute(
+        grid_gdf,
+        value_field='count',
+        neighborhood_method=req.neighborhood_method,
+        k=req.k,
+        distance_band_m=req.distance_band_m,
+        permutations=req.permutations,
+        fdr=req.fdr,
+        use_centroids=req.use_centroids,
+    )
+
+    # 4) Global spatial autocorrelation (Moran's I) on counts for context
+    try:
+        # Build weights consistent with chosen method for comparability
+        # For simplicity, use queen on the grid for Moran's I
+        w_gdf = gi_gdf.copy()
+        w_gdf = w_gdf.set_geometry('geometry')
+        # Use libpysal Queen via GeoDataFrame directly
+        from libpysal.weights import Queen
+        w = Queen.from_dataframe(w_gdf)
+        w.transform = 'R'
+        mi = Moran(gi_gdf['count'].to_numpy(dtype=float), w, two_tailed=True, permutations=req.permutations)
+        moran_i = float(mi.I)
+        moran_p = float(mi.p_sim)
+        moran_z = float(mi.z_sim)
+    except Exception as e:
+        moran_i = None
+        moran_p = None
+        moran_z = None
+
+    # 5) Save shapefile output
+    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'outputs'))
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    shp_path = save_as_shapefile(gi_gdf, out_dir, f"gi_star_{timestamp}")
+
+    # 6) Build summary
+    z = gi_gdf['z_score'].to_numpy()
+    p = gi_gdf['p_value'].to_numpy()
+    sig = gi_gdf['significance'].astype(str)
+
+    summary = {
+        'n_units': int(len(gi_gdf)),
+        'hot_counts': {
+            'hot_99': int((sig == 'hot_99').sum()),
+            'hot_95': int((sig == 'hot_95').sum()),
+            'hot_90': int((sig == 'hot_90').sum()),
+        },
+        'cold_counts': {
+            'cold_99': int((sig == 'cold_99').sum()),
+            'cold_95': int((sig == 'cold_95').sum()),
+            'cold_90': int((sig == 'cold_90').sum()),
+        },
+        'fdr_significant_total': int(gi_gdf['fdr_significant'].sum()),
+        'z_stats': {
+            'min': float(np.nanmin(z)),
+            'mean': float(np.nanmean(z)),
+            'max': float(np.nanmax(z)),
+            'std': float(np.nanstd(z)),
+        },
+        'moran': {
+            'I': moran_i,
+            'z': moran_z,
+            'p_value': moran_p,
+        }
+    }
+
+    return {
+        'status': 'ok',
+        'shapefile_path': shp_path,
+        'summary': summary,
+    }
+
 # Auth endpoints
 @app.post("/auth/signup", response_model=UserOut)
 async def signup(user: UserCreate):
@@ -192,6 +299,17 @@ async def get_nearby_events(lng: float, lat: float, radius_km: int = 5):
         # If index is missing or query fails, fall back to empty list
         print(f"Geo query failed: {e}")
         return []
+
+@app.delete("/api/events/{event_id}")
+async def delete_event(event_id: str):
+    try:
+        oid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event id")
+    res = await db.events.delete_one({"_id": oid})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"status": "deleted", "id": event_id}
 
 if __name__ == "__main__":
     import uvicorn

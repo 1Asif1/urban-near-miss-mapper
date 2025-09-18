@@ -54,6 +54,16 @@ export const updateEvent = async (eventId, eventData) => {
   }
 };
 
+export const deleteEvent = async (eventId) => {
+  try {
+    const response = await api.delete(`/api/events/${eventId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting event:', error);
+    throw error;
+  }
+};
+
 // Auth endpoints
 export const signup = async ({ email_or_phone, password, role = 'user' }) => {
   try {
