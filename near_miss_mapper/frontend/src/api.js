@@ -1,5 +1,6 @@
 import axios from 'axios';
 
+// Default to backend on localhost:8000; allow REACT_APP_API_URL override.
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
@@ -7,6 +8,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000,
 });
 
 // Event endpoints
@@ -48,6 +50,27 @@ export const updateEvent = async (eventId, eventData) => {
     return response.data;
   } catch (error) {
     console.error('Error updating event:', error);
+    throw error;
+  }
+};
+
+// Auth endpoints
+export const signup = async ({ email_or_phone, password, role = 'user' }) => {
+  try {
+    const res = await api.post('/auth/signup', { email_or_phone, password, role });
+    return res.data;
+  } catch (error) {
+    console.error('Error during signup:', error);
+    throw error;
+  }
+};
+
+export const login = async ({ email_or_phone, password }) => {
+  try {
+    const res = await api.post('/auth/login', { email_or_phone, password });
+    return res.data; // { access_token, token_type, role }
+  } catch (error) {
+    console.error('Error during login:', error);
     throw error;
   }
 };
