@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Incident Location Reporter</title>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+	<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+	<h2>Report Incident Location</h2>
+	<div id="main-flex-container">
+		<div id="map-container">
+			<div id="map"></div>
+			<p class="instructions">Click on the map to mark the incident location. The latitude and longitude will be auto-filled in the form.</p>
+		</div>
+	</div>
+	<div id="report-form-side-container">
+		<div id="report-form-container">
+			<form id="report-form">
+				<h3 style="margin-top:0;">Report Incident</h3>
+				<label for="incident-location">Location:</label>
+				<input type="text" id="incident-location" name="location" required placeholder="Enter location" class="form-input" />
+				<label for="incident-type">Incident Type:</label>
+				<input type="text" id="incident-type" name="incident_type" required placeholder="Type (e.g. Fire, Accident)" class="form-input" />
+				<label for="incident-severity">Severity:</label>
+				<select id="incident-severity" name="severity" required class="form-input">
+					<option value="">Select severity</option>
+					<option value="Low">Low</option>
+					<option value="Medium">Medium</option>
+					<option value="High">High</option>
+					<option value="Critical">Critical</option>
+				</select>
+				<label for="incident-description">Description:</label>
+				<textarea id="incident-description" name="description" required placeholder="Describe the incident" class="form-input"></textarea>
+				<label for="incident-timestamp">Timestamp:</label>
+				<input type="datetime-local" id="incident-timestamp" name="timestamp" required class="form-input" />
+				<label for="incident-reported-by">Reported By:</label>
+				<input type="text" id="incident-reported-by" name="reported_by" required placeholder="Your name or ID" class="form-input" />
+				<div style="display:flex; gap:10px; margin-top:16px;">
+					<button type="submit" class="form-submit">Submit</button>
+					<button type="button" onclick="toggleReportForm()" class="form-cancel">Cancel</button>
+				</div>
+			</form>
+		</div>
+	</div>
+	<div id="report-btn">
+		<button onclick="toggleReportForm()">Report Incident</button>
+	</div>
+	<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+	<script src="markerMap.js"></script>
+</body>
+</html>
