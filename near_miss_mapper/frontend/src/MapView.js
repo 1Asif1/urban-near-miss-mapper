@@ -56,7 +56,23 @@ function MapView() {
   const fetchNearbyEvents = async (lng, lat) => {
     try {
       const response = await axios.get(`/api/events/nearby?lng=${lng}&lat=${lat}&radius_km=10`);
-      setEvents(response.data);
+      let data = response.data;
+      // Ensure we always set an array to prevent runtime errors when mapping
+      if (!Array.isArray(data)) {
+        data = [];
+      }
+      // Fallback: if nearby endpoint not implemented or returns empty, try fetching all events
+      if (data.length === 0) {
+        try {
+          const all = await axios.get('/api/events/');
+          if (Array.isArray(all.data)) {
+            data = all.data;
+          }
+        } catch (e) {
+          // ignore, will show error below
+        }
+      }
+      setEvents(data);
     } catch (err) {
       console.error("Error fetching events:", err);
       setError("Failed to load near-miss events. Please try again later.");
