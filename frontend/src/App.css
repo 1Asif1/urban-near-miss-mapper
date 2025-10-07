@@ -1,0 +1,64 @@
+/* Basic app layout */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #0b0c10;
+  color: #e5e7eb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.app-header {
+  padding: 16px 24px;
+  background: #111827;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+main {
+  flex: 1 1 auto;
+  display: flex;
+}
+
+/* Container that holds the Leaflet map */
+.map-container {
+  position: relative;
+  flex: 1 1 auto;
+  height: calc(100vh - 120px); /* header + footer approx */
+}
+
+/* Ensure leaflet map stretches fully */
+.leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* Loading and error states */
+.map-loading,
+.map-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  font-size: 1.1rem;
+  color: #f3f4f6;
+}
+
+footer {
+  padding: 12px 24px;
+  background: #111827;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: #9ca3af;
+  font-size: 0.9rem;
+}
