@@ -9,6 +9,14 @@ import os
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 import jwt
+import pandas as pd
+import numpy as np
+from esda.moran import Moran
+from app.spatial.gi_star import (
+    events_to_grid,
+    gi_star as gi_star_compute,
+    save_as_shapefile,
+)
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +32,7 @@ DEV_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=DEV_ORIGINS,
+    allow_origin_regex=r"http://(localhost|127\\.0\\.0\\.1)(:\\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,7 +71,8 @@ def serialize_event(doc: dict) -> dict:
     return out
 
 # Auth setup
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use pbkdf2_sha256 to avoid external bcrypt backend issues on Windows
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 JWT_SECRET = os.getenv("JWT_SECRET", "dev_secret_change_me")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
