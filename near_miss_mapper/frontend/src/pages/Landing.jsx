@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import DarkVeil from '../Reactbits/DarkVeil/DarkVeil';
 
 export default function Landing() {
   const { token } = useAuth();
@@ -12,17 +13,23 @@ export default function Landing() {
 
   return (
     <div style={{
-      minHeight: 'calc(100vh - 120px)',
+      
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 24,
-      background: '#0b0c10'
-    }}>
+      margin: 'auto',
+      height: 'auto',
+      width: '100vw'}}>
+      
       <div style={{
         width: 'min(880px, 92vw)',
-        display: 'grid',
-        gridTemplateColumns: '1fr',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        
+      
         gap: 24,
         background: '#111827',
         borderRadius: 16,
@@ -31,7 +38,7 @@ export default function Landing() {
         boxShadow: '0 20px 60px rgba(0,0,0,0.35)'
       }}>
         <div>
-          <h2 style={{ margin: '4px 0 8px', fontSize: 32 }}>Urban Near Miss Mapper</h2>
+          <h2 style={{ margin: '4px 0 8px', fontSize: 32,textAlign: 'center' }}>Urban Near Miss Mapper</h2>
           <p style={{ margin: 0, color: '#9ca3af' }}>Report and visualize near‑miss incidents to make cities safer.</p>
         </div>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route ,Link} from 'react-router-dom';
 import MapView from './MapView';
 import './App.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -7,12 +7,13 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Landing from './pages/Landing';
 import ProtectedRoute from './components/ProtectedRoute';
+import DarkVeil from './Reactbits/DarkVeil/DarkVeil';
 
 function HeaderBar() {
   const { token, role, logout } = useAuth();
   return (
     <header className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <h1 style={{ margin: 0 }}>Urban Near Miss Mapper</h1>
+      <Link to="/" style={{ margin: 0, textDecoration: 'none',color: '#e5e7eb' }}><h1 style={{ margin: 0 }}>Urban Near Miss Mapper</h1></Link>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {token ? (
           <>
@@ -26,15 +27,19 @@ function HeaderBar() {
           </div>
         )}
       </div>
+      
     </header>
   );
 }
 
 function App() {
   return (
+    <>
+    
     <AuthProvider>
       <Router>
         <div className="app">
+          <DarkVeil />
           <HeaderBar />
           <main>
             <Routes>
@@ -44,12 +49,14 @@ function App() {
               <Route path="/signup" element={<Signup />} />
             </Routes>
           </main>
+          
           <footer>
             <p>© {new Date().getFullYear()} Urban Near Miss Mapper</p>
           </footer>
         </div>
       </Router>
     </AuthProvider>
+    </>
   );
 }
 
