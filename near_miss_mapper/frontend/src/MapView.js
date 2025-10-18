@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents} from 'react-leaflet';
+import {L,DivIcon,Icon,point} from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import axios from 'axios';
-import { createEvent, deleteEvent } from './api';
+import MarkerClusterGroup from 'react-leaflet-cluster';
+import { createEvent, deleteEvent, getNearbyEvents, getEvents } from './api';
 import ReportButton from './components/ReportButton';
 
 // Fix for default marker icons in React Leaflet
-const defaultIcon = new L.Icon({
+const defaultIcon = new Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
@@ -66,8 +66,8 @@ function MapView() {
 
   const fetchNearbyEvents = async (lng, lat) => {
     try {
-      const response = await axios.get(`/api/events/nearby?lng=${lng}&lat=${lat}&radius_km=10`);
-      let data = response.data;
+      // Use centralized API client to respect baseURL and headers
+      let data = await getNearbyEvents(lat, lng, 10);
       // Ensure we always set an array to prevent runtime errors when mapping
       if (!Array.isArray(data)) {
         data = [];
@@ -75,10 +75,8 @@ function MapView() {
       // Fallback: if nearby endpoint not implemented or returns empty, try fetching all events
       if (data.length === 0) {
         try {
-          const all = await axios.get('/api/events/');
-          if (Array.isArray(all.data)) {
-            data = all.data;
-          }
+          const all = await getEvents();
+          if (Array.isArray(all)) data = all;
         } catch (e) {
           // ignore, will show error below
         }
@@ -154,6 +152,54 @@ function MapView() {
   if (error) {
     return <div className="map-error">{error}</div>;
   }
+  // Severity utilities
+  const severityRank = { low: 1, medium: 2, high: 3, critical: 4 };
+  const severityColor = (sev) => {
+    switch ((sev || '').toLowerCase()) {
+      case 'critical':
+        return { border: '#b91c1c', fill: 'rgba(239, 68, 68, 0.28)' }; // red
+      case 'high':
+        return { border: '#c2410c', fill: 'rgba(251, 146, 60, 0.28)' }; // orange
+      case 'medium':
+        return { border: '#a16207', fill: 'rgba(250, 204, 21, 0.28)' }; // amber
+      case 'low':
+      default:
+        return { border: '#166534', fill: 'rgba(34, 197, 94, 0.28)' }; // green
+    }
+  };
+
+  const createClusterIcon = (cluster) => {
+    const childCount = cluster.getChildCount();
+    // Determine cluster severity by max severity among children (from marker.options.title)
+    const childMarkers = cluster.getAllChildMarkers();
+    let maxSev = 'low';
+    let maxRank = 0;
+    childMarkers.forEach((m) => {
+      const sev = (m && m.options && m.options.title) ? String(m.options.title).toLowerCase() : 'low';
+      const r = severityRank[sev] || 1;
+      if (r > maxRank) {
+        maxRank = r;
+        maxSev = sev;
+      }
+    });
+    const { border, fill } = severityColor(maxSev);
+    const size = childCount < 10 ? 36 : childCount < 100 ? 46 : 58;
+    return new DivIcon({
+      html: `
+        <div style="
+          position: relative;
+          width:${size}px;height:${size}px;border-radius:50%;
+          background:${fill};border:3px solid ${border};
+          display:flex;align-items:center;justify-content:center;
+          color:#111827;font-weight:800;backdrop-filter:saturate(120%);
+          box-shadow:0 4px 12px rgba(0,0,0,0.18);">
+          <span style=\"font-size:14px;\">${childCount}</span>
+        </div>
+      `,
+      className: '',
+      iconSize: point(size, size),
+    });
+  };
 
   return (
     <div className="map-container" style={{ position: 'relative' }}>
@@ -162,9 +208,13 @@ function MapView() {
         zoom={13}
         style={{ height: "100%", width: "100%" }}
       >
-        <TileLayer
+        {/* <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        /> */}
+        <TileLayer
+          url='https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
+          attribution='&copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
         {position && (
           <LocationMarker 
@@ -173,11 +223,21 @@ function MapView() {
           />
         )}
         {/* Render near-miss event markers */}
+        <MarkerClusterGroup
+          chunkedLoading={true}
+          iconCreateFunction={createClusterIcon}
+          spiderfyOnMaxZoom={true}
+          showCoverageOnHover={false}
+          removeOutsideVisibleBounds={true}
+          disableClusteringAtZoom={16}
+          maxClusterRadius={60}
+        >
         {events.map((event, index) => (
           <Marker 
             key={event.id || index} 
             position={[event.location.coordinates[1], event.location.coordinates[0]]}
             icon={defaultIcon}
+            title={event.severity}
           >
             <Popup>
               <div>
@@ -205,6 +265,7 @@ function MapView() {
             </Popup>
           </Marker>
         ))}
+        </MarkerClusterGroup>
       </MapContainer>
 
       {/* Floating Report Incident button (hidden while form is open) */}
