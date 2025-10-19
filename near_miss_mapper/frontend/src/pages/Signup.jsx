@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { signup } from '../api';
+import { Mail, Lock } from 'lucide-react';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -33,41 +34,48 @@ export default function Signup() {
   return (
     <div style={{
       minHeight: 'calc(100vh - 120px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      display: 'grid',
+      placeItems: 'center',
       padding: 24,
-      background: '#f5f7fb'
+      width: '100%',
+      boxSizing: 'border-box',
+      flex: '1 1 auto'
     }}>
       <div style={{ width: 460, background: '#ffffff', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.1)', padding: 24 }}>
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>Create your account</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color:'#111827'}}>Create your account</div>
           <div style={{ color: '#6b7280', marginTop: 6 }}>Sign up to start contributing near-miss reports</div>
         </div>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 6 }}>Email / Phone Number</label>
-            <input
-              type="text"
-              name="email_or_phone"
-              placeholder="Enter your email or phone number"
-              value={form.email_or_phone}
-              onChange={handleChange}
-              required
-              style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #d1d5db', background: '#fff' }}
-            />
+            <div style={{ position: 'relative' }}>
+              <Mail size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+              <input
+                type="text"
+                name="email_or_phone"
+                placeholder="Enter your email or phone number"
+                value={form.email_or_phone}
+                onChange={handleChange}
+                required
+                style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff' }}
+              />
+            </div>
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 6 }}>Password</label>
-            <input
-              type="password"
-              name="password"
-              placeholder="Create a secure password"
-              value={form.password}
-              onChange={handleChange}
-              required
-              style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #d1d5db', background: '#fff' }}
-            />
+            <div style={{ position: 'relative' }}>
+              <Lock size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+              <input
+                type="password"
+                name="password"
+                placeholder="Create a secure password"
+                value={form.password}
+                onChange={handleChange}
+                required
+                style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff' }}
+              />
+            </div>
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 6 }}>Role</label>
