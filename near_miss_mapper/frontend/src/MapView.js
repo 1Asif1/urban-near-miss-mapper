@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap, CircleMarker } from 'react-leaflet';
 import L, { DivIcon, Icon, point } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import MarkerClusterGroup from 'react-leaflet-cluster';
-import { createEvent, deleteEvent, getNearbyEvents, getEvents } from './api';
+import { createEvent, deleteEvent, getNearbyEvents } from './api';
 import ReportButton from './components/ReportButton';
 
 // Fix for default marker icons in React Leaflet
@@ -20,7 +20,7 @@ const defaultIcon = new Icon({
 });
 
 function LocationMarker({ position, onPositionChange }) {
-  const map = useMapEvents({
+  useMapEvents({
     click(e) {
       onPositionChange(e.latlng);
     },
@@ -55,6 +55,13 @@ function MapView() {
     reported_by: '',
     timestamp: '' // HTML datetime-local value (e.g., 2025-09-18T11:30)
   });
+  const [livePosition, setLivePosition] = useState(null);
+  const geoWatchIdRef = useRef(null);
+  const [showNearLiveOnly, setShowNearLiveOnly] = useState(false);
+
+  // Simple in-memory cache for suggestions to avoid redundant Nominatim calls
+  const suggestionsCacheRef = useRef(new Map());
+  const SUGGESTIONS_TTL_MS = 180000; // 3 minutes
 
   useEffect(() => {
     // Get user's current location
@@ -72,6 +79,22 @@ function MapView() {
         fetchNearbyEvents(-0.09, 51.505);
       }
     );
+    try {
+      const id = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          setLivePosition([latitude, longitude]);
+        },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+      );
+      geoWatchIdRef.current = id;
+    } catch (_) {}
+    return () => {
+      if (geoWatchIdRef.current != null && navigator.geolocation && navigator.geolocation.clearWatch) {
+        try { navigator.geolocation.clearWatch(geoWatchIdRef.current); } catch (_) {}
+      }
+    };
   }, []);
 
   const fetchNearbyEvents = async (lng, lat) => {
@@ -82,15 +105,6 @@ function MapView() {
       if (!Array.isArray(data)) {
         data = [];
       }
-      // Fallback: if nearby endpoint not implemented or returns empty, try fetching all events
-      if (data.length === 0) {
-        try {
-          const all = await getEvents();
-          if (Array.isArray(all)) data = all;
-        } catch (e) {
-          // ignore, will show error below
-        }
-      }
       setEvents(data);
     } catch (err) {
       console.error("Error fetching events:", err);
@@ -99,6 +113,19 @@ function MapView() {
       setLoading(false);
     }
   };
+
+  // Visible events: either all, or only those within 5km of live position
+  const NEAR_LIVE_RADIUS_M = 5000;
+  const visibleEvents = (showNearLiveOnly && livePosition)
+    ? events.filter((ev) => {
+        try {
+          const elat = ev.location.coordinates[1];
+          const elng = ev.location.coordinates[0];
+          const d = L.latLng(elat, elng).distanceTo(L.latLng(livePosition[0], livePosition[1]));
+          return Number.isFinite(d) && d <= NEAR_LIVE_RADIUS_M;
+        } catch (_) { return false; }
+      })
+    : events;
 
   const toDateTimeLocal = (d) => {
     // convert Date to YYYY-MM-DDTHH:mm for input[type=datetime-local]
@@ -114,7 +141,6 @@ function MapView() {
   const handleMapClick = (latlng) => {
     setPosition([latlng.lat, latlng.lng]);
     // If the form is already open, keep it open and update the location
-    console.log("Map clicked at:", latlng);
   };
 
   // Attach a single persistent routing control and update waypoints
@@ -184,9 +210,25 @@ function MapView() {
     return null;
   };
 
-  // Debounced suggestions fetcher with nearby bias using a small viewbox around current position
+  // Debounced suggestions fetcher with caching and nearby bias using a small viewbox around current position
   const fetchSuggestions = async (q, near, limit = 5) => {
     if (!q || !q.trim()) return [];
+    const normQ = q.trim().toLowerCase();
+    const keyNear = (near && Array.isArray(near) && near.length === 2)
+      ? `${near[0].toFixed(4)},${near[1].toFixed(4)}`
+      : 'global';
+    const cacheKey = `${normQ}|${keyNear}|${limit}`;
+
+    // Try cache first
+    const now = Date.now();
+    const cache = suggestionsCacheRef.current;
+    if (cache.has(cacheKey)) {
+      const entry = cache.get(cacheKey);
+      if (entry && (now - entry.ts) < SUGGESTIONS_TTL_MS && Array.isArray(entry.data)) {
+        return entry.data;
+      }
+    }
+
     const params = new URLSearchParams({ format: 'json', addressdetails: '1', limit: String(limit), q });
     if (near && Array.isArray(near) && near.length === 2) {
       const [lat, lon] = near; // lat, lon
@@ -200,12 +242,16 @@ function MapView() {
     try {
       const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'urban-near-miss-mapper/0.1 (contact@example.com)' } });
       const data = await res.json();
-      if (Array.isArray(data)) return data.map(d => ({
+      const parsed = Array.isArray(data) ? data.map(d => ({
         label: d.display_name,
         lat: parseFloat(d.lat),
         lon: parseFloat(d.lon)
-      }));
-    } catch (e) {}
+      })) : [];
+      cache.set(cacheKey, { ts: now, data: parsed });
+      return parsed;
+    } catch (e) {
+      cache.set(cacheKey, { ts: now, data: [] });
+    }
     return [];
   };
 
@@ -229,8 +275,14 @@ function MapView() {
   }, [toText, position]);
 
   const handleRouteAddresses = async () => {
-    const from = await geocode(fromText);
-    const to = await geocode(toText);
+    let from = fromCoord;
+    let to = toCoord;
+    if (!from) {
+      from = await geocode(fromText);
+    }
+    if (!to) {
+      to = await geocode(toText);
+    }
     if (from && to) {
       setFromCoord(from);
       setToCoord(to);
@@ -382,10 +434,6 @@ function MapView() {
         zoom={13}
         style={{ height: "100%", width: "100%" }}
       >
-        {/* <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        /> */}
         <TileLayer
           url='https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
           attribution='&copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -395,6 +443,9 @@ function MapView() {
             position={position} 
             onPositionChange={handleMapClick} 
           />
+        )}
+        {livePosition && (
+          <CircleMarker center={livePosition} radius={8} pathOptions={{ color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.9 }} />
         )}
         {/* Render near-miss event markers */}
         <MarkerClusterGroup
@@ -406,7 +457,7 @@ function MapView() {
           disableClusteringAtZoom={16}
           maxClusterRadius={60}
         >
-        {events.map((event, index) => (
+        {visibleEvents.map((event, index) => (
           <Marker 
             key={event.id || index} 
             position={[event.location.coordinates[1], event.location.coordinates[0]]}
@@ -512,9 +563,13 @@ function MapView() {
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={handleRouteAddresses} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #2563eb', background: '#3b82f6', color: 'white', fontWeight: 600 }}>Route</button>
             <button onClick={handleClearRoute} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #9ca3af', background: '#e5e7eb', color: '#374151', fontWeight: 600 }}>Clear</button>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
+              <input type="checkbox" checked={showNearLiveOnly} onChange={(e) => setShowNearLiveOnly(e.target.checked)} />
+              Show incidents within 5km of my location
+            </label>
           </div>
         </div>
       </div>
