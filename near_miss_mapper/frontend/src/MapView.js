@@ -317,6 +317,30 @@ function MapView() {
     }
   };
 
+  // Custom incident marker icon using DivIcon with severity-aware colors
+  const createIncidentIcon = (ev) => {
+    const sev = (ev && ev.severity) ? String(ev.severity).toLowerCase() : 'low';
+    const { border, fill } = severityColor(sev);
+    const size = 30;
+    return new DivIcon({
+      html: `
+        <div style="
+          width:${size}px;height:${size}px;border-radius:50%;
+          background:${fill};border:3px solid ${border};
+          display:flex;align-items:center;justify-content:center;
+          color:#111827;font-weight:900;font-size:16px;line-height:1;
+          box-shadow:0 6px 14px rgba(0,0,0,0.2);
+        ">
+          !
+        </div>
+      `,
+      className: '',
+      iconSize: point(size, size),
+      iconAnchor: point(size / 2, size / 2),
+      popupAnchor: point(0, -size / 2)
+    });
+  };
+
   const createClusterIcon = (cluster) => {
     const childCount = cluster.getChildCount();
     // Determine cluster severity by max severity among children (from marker.options.title)
@@ -386,7 +410,7 @@ function MapView() {
           <Marker 
             key={event.id || index} 
             position={[event.location.coordinates[1], event.location.coordinates[0]]}
-            icon={defaultIcon}
+            icon={createIncidentIcon(event)}
             title={event.severity}
           >
             <Popup>
