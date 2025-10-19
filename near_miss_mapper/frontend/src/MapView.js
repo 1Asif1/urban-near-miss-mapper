@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents} from 'react-leaflet';
-import {L,DivIcon,Icon,point} from 'leaflet';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
+import L, { DivIcon, Icon, point } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-routing-machine';
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { createEvent, deleteEvent, getNearbyEvents, getEvents } from './api';
 import ReportButton from './components/ReportButton';
@@ -38,6 +40,14 @@ function MapView() {
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [fromText, setFromText] = useState('');
+  const [toText, setToText] = useState('');
+  const [fromCoord, setFromCoord] = useState(null);
+  const [toCoord, setToCoord] = useState(null);
+  const [fromSuggestions, setFromSuggestions] = useState([]);
+  const [toSuggestions, setToSuggestions] = useState([]);
+  const [showFromSug, setShowFromSug] = useState(false);
+  const [showToSug, setShowToSug] = useState(false);
   const [form, setForm] = useState({
     description: '',
     incident_type: '',
@@ -105,6 +115,145 @@ function MapView() {
     setPosition([latlng.lat, latlng.lng]);
     // If the form is already open, keep it open and update the location
     console.log("Map clicked at:", latlng);
+  };
+
+  // Attach a single persistent routing control and update waypoints
+  function RoutingControl({ from, to }) {
+    const map = useMap();
+    const controlRef = useRef(null);
+
+    useEffect(() => {
+      if (!map) return;
+      // Create once
+      if (!controlRef.current) {
+        controlRef.current = L.Routing.control({
+          waypoints: [],
+          routeWhileDragging: true,
+          show: false,
+          addWaypoints: true,
+          draggableWaypoints: true,
+          fitSelectedRoutes: true,
+          showAlternatives: true
+        }).addTo(map);
+      }
+      return () => {
+        // Cleanup on unmount: clear waypoints first, then remove
+        if (controlRef.current) {
+          try {
+            controlRef.current.setWaypoints([]);
+          } catch (e) {}
+          try {
+            map.removeControl(controlRef.current);
+          } catch (e) {}
+          controlRef.current = null;
+        }
+      };
+    }, [map]);
+
+    // Update waypoints when from/to change
+    useEffect(() => {
+      const ctrl = controlRef.current;
+      if (!map || !ctrl) return;
+      if (from && to) {
+        ctrl.setWaypoints([
+          L.latLng(from[0], from[1]),
+          L.latLng(to[0], to[1])
+        ]);
+      } else if (from && !to) {
+        ctrl.setWaypoints([L.latLng(from[0], from[1])]);
+      } else {
+        ctrl.setWaypoints([]);
+      }
+    }, [map, from, to]);
+
+    return null;
+  }
+
+  const geocode = async (q) => {
+    if (!q || !q.trim()) return null;
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'urban-near-miss-mapper/0.1 (contact@example.com)' } });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const { lat, lon } = data[0];
+        return [parseFloat(lat), parseFloat(lon)];
+      }
+    } catch (e) {
+    }
+    return null;
+  };
+
+  // Debounced suggestions fetcher with nearby bias using a small viewbox around current position
+  const fetchSuggestions = async (q, near, limit = 5) => {
+    if (!q || !q.trim()) return [];
+    const params = new URLSearchParams({ format: 'json', addressdetails: '1', limit: String(limit), q });
+    if (near && Array.isArray(near) && near.length === 2) {
+      const [lat, lon] = near; // lat, lon
+      const latDelta = 0.2;
+      const lonDelta = 0.2;
+      const viewbox = [lon - lonDelta, lat + latDelta, lon + lonDelta, lat - latDelta].join(',');
+      params.set('viewbox', viewbox);
+      params.set('bounded', '1');
+    }
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+    try {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'urban-near-miss-mapper/0.1 (contact@example.com)' } });
+      const data = await res.json();
+      if (Array.isArray(data)) return data.map(d => ({
+        label: d.display_name,
+        lat: parseFloat(d.lat),
+        lon: parseFloat(d.lon)
+      }));
+    } catch (e) {}
+    return [];
+  };
+
+  // Debounce inputs
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!fromText) { setFromSuggestions([]); return; }
+      const list = await fetchSuggestions(fromText, position);
+      setFromSuggestions(list);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [fromText, position]);
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!toText) { setToSuggestions([]); return; }
+      const list = await fetchSuggestions(toText, position);
+      setToSuggestions(list);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [toText, position]);
+
+  const handleRouteAddresses = async () => {
+    const from = await geocode(fromText);
+    const to = await geocode(toText);
+    if (from && to) {
+      setFromCoord(from);
+      setToCoord(to);
+    } else {
+      setError('Could not find one or both locations.');
+    }
+  };
+
+  const handleClearRoute = () => {
+    setFromCoord(null);
+    setToCoord(null);
+  };
+
+  const handleSelectFrom = (sug) => {
+    setFromText(sug.label);
+    setFromCoord([sug.lat, sug.lon]);
+    setShowFromSug(false);
+  };
+
+  const handleSelectTo = (sug) => {
+    setToText(sug.label);
+    setToCoord([sug.lat, sug.lon]);
+    setShowToSug(false);
   };
 
   const openForm = () => {
@@ -200,6 +349,7 @@ function MapView() {
       iconSize: point(size, size),
     });
   };
+  
 
   return (
     <div className="map-container" style={{ position: 'relative' }}>
@@ -266,7 +416,84 @@ function MapView() {
           </Marker>
         ))}
         </MarkerClusterGroup>
+
+        {fromCoord && toCoord && (
+          <RoutingControl from={fromCoord} to={toCoord} />
+        )}
       </MapContainer>
+
+      <div
+        style={{
+          position: 'absolute',
+          top: 106,
+          left: 16,
+          width: 340,
+          background: '#ffffff',
+          color: '#111827',
+          border: '1px solid rgba(0,0,0,0.08)',
+          borderRadius: 8,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+          padding: 12,
+          zIndex: 1000
+        }}
+      >
+        <div style={{ marginBottom: 8, fontWeight: 700 }}>Route Planner</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="From (address, place)"
+              value={fromText}
+              onChange={(e) => { setFromText(e.target.value); setShowFromSug(true); }}
+              onFocus={() => setShowFromSug(true)}
+              onBlur={() => setTimeout(() => setShowFromSug(false), 150)}
+              style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #d1d5db', background: '#ffffff', color: '#111827' }}
+            />
+            {showFromSug && fromSuggestions.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4, maxHeight: 220, overflowY: 'auto', boxShadow: '0 10px 20px rgba(0,0,0,0.12)', zIndex: 1100 }}>
+                {fromSuggestions.map((s, i) => (
+                  <div
+                    key={`from-${i}`}
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectFrom(s); }}
+                    style={{ padding: '8px 10px', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 13, color: '#111827' }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="To (address, place)"
+              value={toText}
+              onChange={(e) => { setToText(e.target.value); setShowToSug(true); }}
+              onFocus={() => setShowToSug(true)}
+              onBlur={() => setTimeout(() => setShowToSug(false), 150)}
+              style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #d1d5db', background: '#ffffff', color: '#111827' }}
+            />
+            {showToSug && toSuggestions.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4, maxHeight: 220, overflowY: 'auto', boxShadow: '0 10px 20px rgba(0,0,0,0.12)', zIndex: 1100 }}>
+                {toSuggestions.map((s, i) => (
+                  <div
+                    key={`to-${i}`}
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectTo(s); }}
+                    style={{ padding: '8px 10px', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 13, color: '#111827' }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleRouteAddresses} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #2563eb', background: '#3b82f6', color: 'white', fontWeight: 600 }}>Route</button>
+            <button onClick={handleClearRoute} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #9ca3af', background: '#e5e7eb', color: '#374151', fontWeight: 600 }}>Clear</button>
+          </div>
+        </div>
+      </div>
 
       {/* Floating Report Incident button (hidden while form is open) */}
       {!showForm && <ReportButton onClick={openForm} />}
